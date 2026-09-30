@@ -2,6 +2,7 @@ import type { Request, Response } from 'express';
 
 import { aiService } from '../services/analysisService';
 import { profileService } from '../services/profileService';
+import { scanService } from '../services/scanService';
 import { asyncHandler } from '../utils/asyncHandler';
 import { UnauthorizedError } from '../utils/errors';
 
@@ -16,11 +17,13 @@ export const listProfiles = asyncHandler(async (req: Request, res: Response) => 
 
 export const createProfile = asyncHandler(async (req: Request, res: Response) => {
   const profile = await profileService.create(userId(req), req.body);
+  await scanService.refreshMember(userId(req), profile.id);
   res.status(201).json(profile);
 });
 
 export const updateProfile = asyncHandler(async (req: Request, res: Response) => {
   const profile = await profileService.update(userId(req), req.params.id, req.body);
+  await scanService.refreshMember(userId(req), profile.id);
   res.json(profile);
 });
 
@@ -44,9 +47,12 @@ export const saveHealthContext = asyncHandler(async (req: Request, res: Response
     ...req.body,
     reportCount: 0,
   });
+  await scanService.refreshMember(userId(req), saved.id);
   res.json(saved);
 });
 
 export const clearHealthContext = asyncHandler(async (req: Request, res: Response) => {
-  res.json(await profileService.clearHealthContext(userId(req), req.params.id));
+  const cleared = await profileService.clearHealthContext(userId(req), req.params.id);
+  await scanService.refreshMember(userId(req), cleared.id);
+  res.json(cleared);
 });

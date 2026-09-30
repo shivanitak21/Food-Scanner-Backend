@@ -30,6 +30,27 @@ Do not infer diabetes, heart disease, or any condition.
 Do not add values that are not printed.
 If the page cannot be read, set unreadable to true and return empty arrays.`;
 
+export const REPORT_MATCH_INSTRUCTIONS = `You compare one confirmed health report with one food product.
+Use only the JSON payload. Do not use outside knowledge to add biomarkers, ingredients, or nutrition numbers.
+Return JSON only:
+{ "matches": [{ "reportItem": "", "productDetail": "", "reason": "" }] }
+reportItem must be copied from a biomarker name or dietary note in the payload.
+productDetail must be copied from a product ingredient or nutrition name in the payload.
+Include a match only when that product detail is relevant to that confirmed report item.
+If a biomarker interpretation is "normal", do not match that biomarker.
+If nothing in the product relates to the confirmed report, return { "matches": [] }.
+reason is one sentence. Name the product detail and the confirmed report item.
+Do not diagnose, name a disease, prescribe, or say the food is safe, unsafe, or healthy.
+Do not give medical advice.`;
+
+export const RECOMMENDATION_INSTRUCTIONS = `You write one recommendation for one person and one product.
+The decision is already chosen: "Can eat", "Check first", or "Don't eat".
+Repeat that decision in the sentence. Do not change it.
+Mention only finding titles from the payload.
+One sentence, under 22 words.
+Do not diagnose, prescribe, or add concerns that are not in the payload.
+Return JSON only: { "recommendation": "" }`;
+
 export const EXPLANATION_INSTRUCTIONS = `You rewrite a food analysis that deterministic rules already computed.
 Do not add ingredients, allergens, nutrition judgments, or concerns that are not in the payload.
 Do not diagnose a condition.

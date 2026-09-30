@@ -79,6 +79,10 @@ export const TERM_RULES: TermRule[] = [
   { term: 'yogurt', allergens: ['milk'], flags: ['dairy'], detection: 'detected' },
   { term: 'yoghurt', allergens: ['milk'], flags: ['dairy'], detection: 'detected' },
   { term: 'paneer', allergens: ['milk'], flags: ['dairy'], detection: 'detected' },
+  { term: 'khoya', allergens: ['milk'], flags: ['dairy'], detection: 'detected' },
+  { term: 'khoa', allergens: ['milk'], flags: ['dairy'], detection: 'detected' },
+  { term: 'mawa', allergens: ['milk'], flags: ['dairy'], detection: 'detected' },
+  { term: 'dahi', allergens: ['milk'], flags: ['dairy'], detection: 'detected' },
   { term: 'curd', allergens: ['milk'], flags: ['dairy'], detection: 'detected' },
   {
     term: 'milk',
@@ -129,6 +133,9 @@ export const TERM_RULES: TermRule[] = [
   { term: 'soy', allergens: ['soy'], detection: 'detected' },
 
   { term: 'wheat flour', allergens: ['wheat', 'gluten'], flags: ['gluten'], detection: 'detected' },
+  { term: 'maida', allergens: ['wheat', 'gluten'], flags: ['gluten'], detection: 'detected' },
+  { term: 'atta', allergens: ['wheat', 'gluten'], flags: ['gluten'], detection: 'detected' },
+  { term: 'suji', allergens: ['wheat', 'gluten'], flags: ['gluten'], detection: 'detected' },
   { term: 'whole wheat', allergens: ['wheat', 'gluten'], flags: ['gluten'], detection: 'detected' },
   { term: 'graham flour', allergens: ['wheat', 'gluten'], flags: ['gluten'], detection: 'detected' },
   { term: 'semolina', allergens: ['wheat', 'gluten'], flags: ['gluten'], detection: 'detected' },
@@ -231,6 +238,9 @@ export const TERM_RULES: TermRule[] = [
   { term: 'sucrose', flags: ['added_sugar'], detection: 'detected' },
   { term: 'glucose', flags: ['added_sugar'], detection: 'detected' },
   { term: 'fructose', flags: ['added_sugar'], detection: 'detected' },
+  { term: 'palm sugar', flags: ['added_sugar'], detection: 'detected' },
+  { term: 'jaggery', flags: ['added_sugar'], detection: 'detected' },
+  { term: 'gur', flags: ['added_sugar'], detection: 'detected' },
   { term: 'honey', flags: ['added_sugar', 'honey'], detection: 'detected' },
   { term: 'sugar', flags: ['added_sugar'], detection: 'detected' },
 

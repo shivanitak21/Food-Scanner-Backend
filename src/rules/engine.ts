@@ -7,7 +7,6 @@ import {
 } from './countries';
 import { ALLERGEN_LABELS, resolveAllergyIds } from './dictionaries';
 import { canon, textIncludesTerm } from './text';
-import { healthContextFindings } from './healthContext';
 import type {
   AnalysisStatus,
   Evidence,
@@ -133,14 +132,6 @@ export function analyzeProfile(input: RulesInput): RulesResult {
 
   findings.push(...matchNutrientLimits(input, packs, clearChecks, canScreenIngredients));
   findings.push(...matchAge(input, packs));
-  findings.push(
-    ...healthContextFindings({
-      context: input.profile.healthContext,
-      saturatedFatHigh: evaluateNutrient(input.nutrition, packs, 'saturatedFatG', 'Saturated fat').state === 'high',
-      sugarHigh: evaluateNutrient(input.nutrition, packs, 'sugarsG', 'Sugars').state === 'high',
-      sodiumHigh: evaluateNutrient(input.nutrition, packs, 'sodiumMg', 'Sodium').state === 'high',
-    }),
-  );
 
   return {
     status: rollupStatus(findings),

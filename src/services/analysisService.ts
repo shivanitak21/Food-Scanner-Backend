@@ -1,7 +1,8 @@
 import { AIService } from '../ai/aiService';
 import { env } from '../config/env';
 import { DISCLAIMER } from '../rules/disclaimer';
-import { analyzeProfile } from '../rules/engine';
+import { analyzeProfile, rollupStatus } from '../rules/engine';
+import { findingsFromReportMatches, reportComparisonUnavailable, type ConfirmedReport } from '../rules/healthContext';
 import type { RulesInput } from '../rules/types';
 import { AppError } from '../utils/errors';
 import { prepareIngredients } from './ingredientService';
@@ -99,6 +100,56 @@ export class AnalysisService {
       throw new AppError('Add a family profile before scanning.', 400, 'VALIDATION_ERROR');
     }
 
+    const profileAnalyses = await Promise.all(
+      input.profiles.map((profile) =>
+        this.reviewProfile({
+          profile,
+          product: input.product,
+          scanType: input.scanType,
+          countryHint: input.countryHint,
+        }),
+      ),
+    );
+    const product = profileAnalyses[0]?.product;
+
+    return {
+      scanType: input.scanType,
+      scope: 'family',
+      disclaimer: DISCLAIMER,
+      product: product ?? {
+        id: input.product.barcode || input.product.id,
+        name: input.product.name,
+        brand: input.product.brand,
+        barcode: input.product.barcode,
+        imageUrl: input.product.imageUrl,
+        ingredientsText: input.product.ingredientsText || undefined,
+        ingredients: [],
+        nutrition: input.product.nutritionItems,
+        countryCodes: input.product.countryCodes,
+        source: input.product.source,
+        sourceUpdatedAt: input.product.sourceUpdatedAt,
+      },
+      familySummary: profileAnalyses.map((analysis) => {
+        const headline = familyHeadline(analysis.status, analysis.findings);
+        return {
+          profileId: analysis.profileId,
+          profileName: analysis.profileName,
+          status: analysis.status,
+          statusLabel: FAMILY_STATUS_LABEL[analysis.status],
+          headline,
+          topConcern: headline,
+        };
+      }),
+      profileAnalyses,
+    };
+  }
+
+  async reviewProfile(input: {
+    profile: ProfileView;
+    product: StoredProduct;
+    scanType: 'barcode' | 'label';
+    countryHint?: string;
+  }): Promise<Omit<AnalysisBody, 'id' | 'createdAt'>> {
     const prepared = prepareIngredients(input.product.ingredientsText, {
       mayContain: input.product.declarations.filter((item) => item.presence === 'may_contain').map((item) => item.label),
       source: input.product.source === 'open_food_facts' ? 'Open Food Facts' : 'Label photo',
@@ -122,76 +173,88 @@ export class AnalysisService {
       source: input.product.source,
       sourceUpdatedAt: input.product.sourceUpdatedAt,
     };
-
-    const profileAnalyses = input.profiles.map((profile) => {
-      const rules = analyzeProfile({
-        profile: {
-          name: profile.name,
-          ageGroup: profile.ageGroup,
-          age: profile.age,
-          diet: profile.diet,
-          dietaryPreferences: profile.dietaryPreferences,
-          allergies: profile.allergies,
-          limits: profile.limits,
-          healthContext: activeHealthContext(profile.healthContext),
-        },
-        ingredients: prepared.ingredients,
-        declarations,
-        nutrition: input.product.nutrition,
-        countryCodes,
-        sourceReliability: input.scanType === 'label' ? 'label_photo' : 'database',
-        organicClaim: input.product.organicClaim,
-        staleProductData: input.product.freshness === 'stale',
-      });
-      const headline = familyHeadline(rules.status, rules.findings);
-      return presentAnalysis({
-        profileId: profile.id,
-        profileName: profile.name,
-        product,
-        ingredients: prepared.ingredients,
-        rules,
-        summary: headline,
-        scanType: input.scanType,
-      });
+    const productText = [
+      input.product.name,
+      ...prepared.ingredients.map((ingredient) => ingredient.name),
+      ...input.product.nutritionItems.map((item) => [item.name, item.amount, item.unit].filter(Boolean).join(' ')),
+    ].join('\n');
+    const rules = analyzeProfile({
+      profile: {
+        name: input.profile.name,
+        ageGroup: input.profile.ageGroup,
+        age: input.profile.age,
+        diet: input.profile.diet,
+        dietaryPreferences: input.profile.dietaryPreferences,
+        allergies: input.profile.allergies,
+        limits: input.profile.limits,
+      },
+      ingredients: prepared.ingredients,
+      declarations,
+      nutrition: input.product.nutrition,
+      countryCodes,
+      sourceReliability: input.scanType === 'label' ? 'label_photo' : 'database',
+      organicClaim: input.product.organicClaim,
+      staleProductData: input.product.freshness === 'stale',
     });
-
-    return {
-      scanType: input.scanType,
-      scope: 'family',
-      disclaimer: DISCLAIMER,
+    const report = confirmedReport(input.profile.healthContext);
+    if (report) {
+      const compared = await this.ai.personalizeReport({
+        report,
+        productName: input.product.name,
+        ingredients: prepared.ingredients.map((ingredient) => ingredient.name),
+        nutrition: input.product.nutritionItems.map((item) => ({
+          name: item.name,
+          amount: item.amount,
+          unit: item.unit,
+        })),
+      });
+      const extra = compared.ok
+        ? findingsFromReportMatches({ report, productText, matches: compared.matches })
+        : [reportComparisonUnavailable()];
+      rules.findings = [...rules.findings, ...extra];
+      rules.status = rollupStatus(rules.findings);
+    }
+    const decision = rules.status === 'avoid' ? "Don't eat" : rules.status === 'review' ? 'Check first' : 'Can eat';
+    const titles = rules.findings.filter((finding) => finding.severity !== 'INFO').map((finding) => finding.title).slice(0, 4);
+    const recommendation = await this.ai.recommend({ decision, findings: titles });
+    return presentAnalysis({
+      profileId: input.profile.id,
+      profileName: input.profile.name,
       product,
-      familySummary: profileAnalyses.map((analysis) => {
-        const headline = familyHeadline(analysis.status, analysis.findings);
-        return {
-          profileId: analysis.profileId,
-          profileName: analysis.profileName,
-          status: analysis.status,
-          statusLabel: FAMILY_STATUS_LABEL[analysis.status],
-          headline,
-          topConcern: headline,
-        };
-      }),
-      profileAnalyses,
-    };
+      ingredients: prepared.ingredients,
+      rules,
+      summary: recommendation ?? (titles[0] ? `${decision}. ${titles[0]}.` : `${decision}.`),
+      scanType: input.scanType,
+    });
   }
 }
 
-function activeHealthContext(context: {
+function confirmedReport(context: {
   enabled: boolean;
   paused: boolean;
-  biomarkers: Array<{ name: string; interpretation: 'elevated' | 'low' | 'normal' | 'borderline' | null; confirmedByUser: boolean }>;
+  biomarkers: Array<{
+    name: string;
+    value: number | null;
+    unit: string | null;
+    interpretation: 'elevated' | 'low' | 'normal' | 'borderline' | null;
+    confirmedByUser: boolean;
+  }>;
   dietaryRecommendations: Array<{ recommendation: string; confirmedByUser: boolean }>;
-} | undefined) {
-  if (!context?.enabled || context.paused) return undefined;
-  return {
-    enabled: true,
-    biomarkers: context.biomarkers
-      .filter((item) => item.confirmedByUser)
-      .map((item) => ({ name: item.name, interpretation: item.interpretation })),
-    dietaryRecommendations: context.dietaryRecommendations
-      .filter((item) => item.confirmedByUser)
-      .map((item) => item.recommendation),
-  };
+} | undefined): ConfirmedReport | null {
+  if (!context?.enabled || context.paused) return null;
+  const biomarkers = context.biomarkers
+    .filter((item) => item.confirmedByUser && item.name.trim())
+    .map((item) => ({
+      name: item.name.trim(),
+      value: item.value,
+      unit: item.unit,
+      interpretation: item.interpretation,
+    }));
+  const dietaryRecommendations = context.dietaryRecommendations
+    .filter((item) => item.confirmedByUser && item.recommendation.trim())
+    .map((item) => item.recommendation.trim());
+  if (biomarkers.length + dietaryRecommendations.length === 0) return null;
+  return { biomarkers, dietaryRecommendations };
 }
 
 function dedupeDeclarations(items: RulesInput['declarations']): RulesInput['declarations'] {

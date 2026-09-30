@@ -3,9 +3,10 @@ import mongoose from 'mongoose';
 import { Scan } from '../models/Scan';
 import type { AnalysisStatus } from '../rules/types';
 import { normalizeCountryCode } from '../rules/countries';
+import { logger } from '../config/logger';
 import { AppError, NotFoundError } from '../utils/errors';
 import { aiService, analysisService } from './analysisService';
-import type { FamilyScanBody } from './presentAnalysis';
+import { familyHeadline, type FamilyScanBody } from './presentAnalysis';
 import { nutritionFromLabelItems, type LabelNutrientInput } from './nutrition';
 import { normalizeIngredientText } from './ocrNormalize';
 import { productService } from './productService';
@@ -116,6 +117,46 @@ export class ScanService {
     });
     const draft = await analysisService.buildFamily({ profiles, product, scanType: 'label', countryHint: country });
     return this.persist(userId, profiles, product.id, 'label', draft);
+  }
+
+  async refreshMember(userId: string, profileId: string): Promise<void> {
+    const profiles = await profileService.list(userId);
+    const profile = profiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    const scans = await Scan.find({ userId }).sort({ createdAt: -1 }).limit(20);
+    for (const scan of scans) {
+      if (!scan.productId) continue;
+      try {
+        const product = await productService.findByIdOrBarcode(String(scan.productId));
+        const reviewed = await analysisService.reviewProfile({
+          profile,
+          product,
+          scanType: scan.scanType === 'label' ? 'label' : 'barcode',
+        });
+        const analysis = (scan.analysis ?? {}) as FamilyScanBody;
+        const analyses = Array.isArray(analysis.profileAnalyses) ? [...analysis.profileAnalyses] : [];
+        const index = analyses.findIndex((item) => item.profileId === profileId);
+        if (index >= 0) analyses[index] = reviewed;
+        else analyses.push(reviewed);
+        const familySummary = analyses.map((item) => {
+          const headline = familyHeadline(item.status, item.findings);
+          return {
+            profileId: item.profileId,
+            profileName: item.profileName,
+            status: item.status,
+            statusLabel: item.statusLabel,
+            headline,
+            topConcern: headline,
+          };
+        });
+        scan.analysis = { ...analysis, scope: 'family', profileAnalyses: analyses, familySummary };
+        scan.status = worstStatus(familySummary.map((member) => member.status));
+        scan.markModified('analysis');
+        await scan.save();
+      } catch (error) {
+        logger.warn({ message: error instanceof Error ? error.message : 'refresh failed', profileId }, 'profile review refresh skipped');
+      }
+    }
   }
 
   async history(userId: string): Promise<Array<FamilyScanBody | Record<string, unknown>>> {

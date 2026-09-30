@@ -1,45 +1,74 @@
 import { describe, expect, it } from 'vitest';
 
-import { healthContextFindings } from '../src/rules/healthContext';
+import { findingsFromReportMatches } from '../src/rules/healthContext';
 import { familyHeadline } from '../src/services/presentAnalysis';
 import { normalizeIngredientText } from '../src/services/ocrNormalize';
 
+const productText = 'Rolled oats, iron, salt\nIron 4 mg\nSugars 2 g';
+
 describe('health context', () => {
-  it('surfaces saturated fat only when the user confirmed an elevated cholesterol-related value', () => {
-    const findings = healthContextFindings({
-      context: {
-        enabled: true,
-        biomarkers: [{ name: 'LDL cholesterol', interpretation: 'elevated' }],
+  it('keeps a match only when the report item and the product detail are both present', () => {
+    const findings = findingsFromReportMatches({
+      report: {
+        biomarkers: [{ name: 'Ferritin', value: 8, unit: 'ng/mL', interpretation: 'low' }],
         dietaryRecommendations: [],
       },
-      saturatedFatHigh: true,
-      sugarHigh: false,
-      sodiumHigh: false,
+      productText,
+      matches: [
+        {
+          reportItem: 'Ferritin',
+          productDetail: 'Iron',
+          reason: 'Iron is listed, and ferritin is a confirmed value on this profile.',
+        },
+      ],
     });
     expect(findings).toHaveLength(1);
     expect(findings[0]?.type).toBe('HEALTH_CONTEXT');
-    expect(findings[0]?.reason).toMatch(/health context you have provided/i);
-    expect(findings[0]?.reason.toLowerCase()).not.toMatch(/dangerous|diagnosis|heart disease/);
+    expect(findings[0]?.title).toBe('Iron');
+    expect(findings[0]?.evidence[0]?.title).toBe('Ferritin');
+    expect(findings[0]?.reason.toLowerCase()).not.toMatch(/diagnosis|disease/);
   });
 
-  it('does not treat a normal result as a reason to review saturated fat', () => {
-    const findings = healthContextFindings({
-      context: {
-        enabled: true,
-        biomarkers: [{ name: 'LDL cholesterol', interpretation: 'normal' }],
+  it('drops a match that cites something not on this profile report', () => {
+    const findings = findingsFromReportMatches({
+      report: {
+        biomarkers: [{ name: 'Ferritin', value: 8, unit: 'ng/mL', interpretation: 'low' }],
         dietaryRecommendations: [],
       },
-      saturatedFatHigh: true,
-      sugarHigh: false,
-      sodiumHigh: false,
+      productText,
+      matches: [
+        {
+          reportItem: 'LDL cholesterol',
+          productDetail: 'Salt',
+          reason: 'Salt is listed.',
+        },
+      ],
     });
     expect(findings).toHaveLength(0);
   });
 
-  it('hides the medical detail in the family headline', () => {
+  it('does not treat a normal confirmed value as a match', () => {
+    const findings = findingsFromReportMatches({
+      report: {
+        biomarkers: [{ name: 'Ferritin', value: 40, unit: 'ng/mL', interpretation: 'normal' }],
+        dietaryRecommendations: [],
+      },
+      productText,
+      matches: [
+        {
+          reportItem: 'Ferritin',
+          productDetail: 'Iron',
+          reason: 'Iron is listed.',
+        },
+      ],
+    });
+    expect(findings).toHaveLength(0);
+  });
+
+  it('uses the product detail from the match as the family headline', () => {
     expect(
-      familyHeadline('review', [{ title: 'Saturated fat', severity: 'MEDIUM', type: 'HEALTH_CONTEXT' }]),
-    ).toBe('Health context');
+      familyHeadline('review', [{ title: 'Iron', severity: 'MEDIUM', type: 'HEALTH_CONTEXT' }]),
+    ).toBe('Iron');
   });
 });
 

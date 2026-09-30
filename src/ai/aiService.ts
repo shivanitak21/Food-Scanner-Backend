@@ -8,7 +8,8 @@ import { nutritionFromLabelItems, type NutritionItem } from '../services/nutriti
 import type { NutritionFacts } from '../rules/types';
 import { AppError } from '../utils/errors';
 import { explanationIsUsable } from './explanationGuard';
-import { EXPLANATION_INSTRUCTIONS, HEALTH_EXTRACT_INSTRUCTIONS, VISION_INSTRUCTIONS } from './prompts';
+import type { ConfirmedReport, ReportMatchDraft } from '../rules/healthContext';
+import { EXPLANATION_INSTRUCTIONS, HEALTH_EXTRACT_INSTRUCTIONS, RECOMMENDATION_INSTRUCTIONS, REPORT_MATCH_INSTRUCTIONS, VISION_INSTRUCTIONS } from './prompts';
 
 export interface LabelExtraction {
   productName: string;
@@ -53,6 +54,23 @@ function normalizeInterpretation(value: string): 'elevated' | 'low' | 'normal' |
   if (text === 'borderline') return 'borderline';
   return null;
 }
+
+const recommendationSchema = z.object({
+  recommendation: z.string().optional().default(''),
+});
+
+const reportMatchSchema = z.object({
+  matches: z
+    .array(
+      z.object({
+        reportItem: z.string().optional().default(''),
+        productDetail: z.string().optional().default(''),
+        reason: z.string().optional().default(''),
+      }),
+    )
+    .optional()
+    .default([]),
+});
 
 const extractionSchema = z.object({
   productName: z.string().optional().default(''),
@@ -207,6 +225,62 @@ export class AIService {
         .filter((item) => item.recommendation)
         .slice(0, 8),
     };
+  }
+
+  async personalizeReport(input: {
+    report: ConfirmedReport;
+    productName: string;
+    ingredients: string[];
+    nutrition: Array<{ name: string; amount: string; unit?: string }>;
+  }): Promise<{ ok: true; matches: ReportMatchDraft[] } | { ok: false }> {
+    if (!this.isConfigured()) return { ok: false };
+    try {
+      const content = await this.complete(
+        this.options.explanationModel,
+        true,
+        [
+          { role: 'system', content: REPORT_MATCH_INSTRUCTIONS },
+          { role: 'user', content: JSON.stringify(input) },
+        ],
+        700,
+      );
+      const parsed = reportMatchSchema.parse(parseModelJson(content));
+      return {
+        ok: true,
+        matches: parsed.matches
+          .map((item) => ({
+            reportItem: item.reportItem.trim(),
+            productDetail: item.productDetail.trim(),
+            reason: item.reason.trim(),
+          }))
+          .filter((item) => item.reportItem && item.productDetail && item.reason)
+          .slice(0, 8),
+      };
+    } catch (error) {
+      logger.warn({ message: error instanceof Error ? error.message : 'report match failed' }, 'report comparison skipped');
+      return { ok: false };
+    }
+  }
+
+  async recommend(input: { decision: 'Can eat' | 'Check first' | "Don't eat"; findings: string[] }): Promise<string | null> {
+    if (!this.isConfigured()) return null;
+    try {
+      const content = await this.complete(
+        this.options.explanationModel,
+        true,
+        [
+          { role: 'system', content: RECOMMENDATION_INSTRUCTIONS },
+          { role: 'user', content: JSON.stringify(input) },
+        ],
+        120,
+      );
+      const parsed = recommendationSchema.parse(parseModelJson(content));
+      const text = parsed.recommendation.replace(/\s+/g, ' ').trim();
+      return text ? text.slice(0, 180) : null;
+    } catch (error) {
+      logger.warn({ message: error instanceof Error ? error.message : 'recommendation failed' }, 'recommendation skipped');
+      return null;
+    }
   }
 
   async explain(input: { summary: string; findings: RuleFinding[]; clearChecks: string[] }): Promise<string | null> {

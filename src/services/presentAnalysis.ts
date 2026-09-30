@@ -138,7 +138,7 @@ function toApiFinding(finding: RuleFinding): ApiFinding {
     title: finding.title,
     ingredient: finding.ingredient,
     ingredientName: finding.ingredient,
-    nutrient: NUTRIENT_LABEL[finding.type],
+    nutrient: NUTRIENT_LABEL[finding.type] ?? (finding.type === 'HEALTH_CONTEXT' ? finding.title : undefined),
     value: measure?.value,
     unit: measure?.unit,
     severity: finding.severity,
@@ -157,6 +157,7 @@ function shortReason(finding: RuleFinding): string {
   if (/screening threshold|screening level/i.test(finding.reason)) {
     return 'Above the configured screening level.';
   }
+  if (finding.type === 'HEALTH_CONTEXT') return finding.reason.replace(/\s+/g, ' ').trim().slice(0, 220);
   if (finding.type === 'ALLERGEN') return 'Listed allergen for this profile.';
   if (finding.type === 'DIET') return 'Does not match this profile’s diet.';
   if (finding.severity === 'INFO') return 'Noted from the available product data.';
@@ -198,15 +199,17 @@ function categoryLabel(type: RuleFinding['type']): string {
       return 'Nutrition';
     case 'AGE':
       return 'Life stage';
+    case 'HEALTH_CONTEXT':
+      return 'Report';
     default:
       return 'Ingredient';
   }
 }
 
 export const FAMILY_STATUS_LABEL: Record<AnalysisStatus, string> = {
-  suitable: 'Looks okay',
-  review: 'Review',
-  avoid: 'Important',
+  suitable: 'Can eat',
+  review: 'Check first',
+  avoid: "Don't eat",
 };
 
 export interface FamilyMemberSummary {
@@ -245,16 +248,27 @@ export function familyHeadline(
   status: AnalysisStatus,
   findings: Array<{ title: string; severity: string; type?: string }>,
 ): string {
-  if (status === 'suitable') return 'Looks okay';
+  const health = findings.find((finding) => finding.type === 'HEALTH_CONTEXT' && finding.severity !== 'INFO');
+  if (status === 'suitable') {
+    const saved = findings.find((finding) => finding.type === 'HEALTH_CONTEXT');
+    return saved ? clipHeadline(saved.title) : 'Can eat';
+  }
   const rank = (severity: string) => (severity === 'HIGH' ? 3 : severity === 'MEDIUM' ? 2 : severity === 'LOW' ? 1 : 0);
   const top = [...findings].sort((left, right) => rank(right.severity) - rank(left.severity))[0];
   if (!top) return FAMILY_STATUS_LABEL[status];
-  if (top.type === 'HEALTH_CONTEXT') return 'Health context';
+  if (health && top.severity !== 'HIGH') return clipHeadline(health.title);
+  if (top.type === 'HEALTH_CONTEXT') return clipHeadline(top.title);
   for (const [pattern, label] of HEADLINE_RULES) {
     if (pattern.test(top.title)) return label;
   }
-  const cleaned = top.title.replace(/[“”"]/g, '').trim();
-  return cleaned.length <= 32 ? cleaned : FAMILY_STATUS_LABEL[status];
+  return clipHeadline(top.title, FAMILY_STATUS_LABEL[status]);
+}
+
+function clipHeadline(title: string, fallback?: string): string {
+  const cleaned = title.replace(/[“”"]/g, '').trim();
+  if (cleaned.length > 0 && cleaned.length <= 42) return cleaned;
+  if (fallback) return fallback;
+  return cleaned.slice(0, 42).trim();
 }
 
 function flagIngredients(ingredients: TaggedIngredient[], findings: RuleFinding[]): ApiIngredient[] {
