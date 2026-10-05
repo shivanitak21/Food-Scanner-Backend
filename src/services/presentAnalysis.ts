@@ -1,6 +1,7 @@
-import { DISCLAIMER, STATUS_LABEL } from '../rules/disclaimer';
+import { DISCLAIMER } from '../rules/disclaimer';
 import { canon } from '../rules/text';
 import type { AnalysisStatus, Evidence, RuleFinding, RulesResult, TaggedIngredient } from '../rules/types';
+import { FIT_LABEL, deriveFit, type FitStatus } from './fit';
 import type { NutritionItem } from './nutrition';
 
 export interface ApiEvidence {
@@ -58,6 +59,7 @@ export interface AnalysisBody {
   profileId: string;
   profileName: string;
   status: AnalysisStatus;
+  fit: FitStatus;
   statusLabel: string;
   summary: string;
   disclaimer: string;
@@ -86,6 +88,7 @@ export function presentAnalysis(input: {
   scanType: 'barcode' | 'label';
 }): Omit<AnalysisBody, 'id' | 'createdAt'> {
   const findings = input.rules.findings.map(toApiFinding);
+  const fit = deriveFit(input.rules.status, input.rules.findings);
   const ingredients = flagIngredients(input.ingredients, input.rules.findings);
   const product = { ...input.product, ingredients, nutrition: input.product.nutrition };
   const evidence = [
@@ -102,7 +105,8 @@ export function presentAnalysis(input: {
     profileId: input.profileId,
     profileName: input.profileName,
     status: input.rules.status,
-    statusLabel: STATUS_LABEL[input.rules.status],
+    fit,
+    statusLabel: FIT_LABEL[fit],
     summary: input.summary,
     disclaimer: DISCLAIMER,
     product,
@@ -155,11 +159,15 @@ function toApiFinding(finding: RuleFinding): ApiFinding {
 
 function shortReason(finding: RuleFinding): string {
   if (/screening threshold|screening level/i.test(finding.reason)) {
-    return 'Above the configured screening level.';
+    return 'This profile is set to watch this nutrient.';
   }
   if (finding.type === 'HEALTH_CONTEXT') return finding.reason.replace(/\s+/g, ' ').trim().slice(0, 220);
-  if (finding.type === 'ALLERGEN') return 'Listed allergen for this profile.';
-  if (finding.type === 'DIET') return 'Does not match this profile’s diet.';
+  if (finding.type === 'ALLERGEN') return 'This matches an allergen listed in this profile.';
+  if (finding.type === 'DIET') return 'This conflicts with the diet listed on this profile.';
+  if (finding.type === 'PREFERENCE') return 'This conflicts with a dietary preference on this profile.';
+  if (finding.type === 'SATURATED_FAT' || finding.type === 'SODIUM' || finding.type === 'ADDED_SUGAR') {
+    return 'This profile is set to watch this nutrient.';
+  }
   if (finding.severity === 'INFO') return 'Noted from the available product data.';
   const sentence = finding.reason.replace(/\s+/g, ' ').trim();
   const end = sentence.search(/[.!](\s|$)/);
@@ -207,18 +215,19 @@ function categoryLabel(type: RuleFinding['type']): string {
 }
 
 export const FAMILY_STATUS_LABEL: Record<AnalysisStatus, string> = {
-  suitable: 'Can eat',
-  review: 'Check first',
-  avoid: "Don't eat",
+  suitable: 'Good fit',
+  review: 'Review',
+  avoid: "Doesn't fit",
 };
 
 export interface FamilyMemberSummary {
   profileId: string;
   profileName: string;
   status: AnalysisStatus;
+  fit: FitStatus;
   statusLabel: string;
   headline: string;
-  topConcern: string;
+  topConcern: string | null;
 }
 
 export interface FamilyScanBody {
@@ -230,6 +239,8 @@ export interface FamilyScanBody {
   product: ApiProduct;
   familySummary: FamilyMemberSummary[];
   profileAnalyses: Array<Omit<AnalysisBody, 'id' | 'createdAt'>>;
+  missingInformation: string[];
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NEEDS_CONFIRMATION';
 }
 
 const HEADLINE_RULES: Array<[RegExp, string]> = [
@@ -251,7 +262,7 @@ export function familyHeadline(
   const health = findings.find((finding) => finding.type === 'HEALTH_CONTEXT' && finding.severity !== 'INFO');
   if (status === 'suitable') {
     const saved = findings.find((finding) => finding.type === 'HEALTH_CONTEXT');
-    return saved ? clipHeadline(saved.title) : 'Can eat';
+    return saved ? clipHeadline(saved.title) : 'Good fit';
   }
   const rank = (severity: string) => (severity === 'HIGH' ? 3 : severity === 'MEDIUM' ? 2 : severity === 'LOW' ? 1 : 0);
   const top = [...findings].sort((left, right) => rank(right.severity) - rank(left.severity))[0];

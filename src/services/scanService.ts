@@ -8,6 +8,28 @@ import { AppError, NotFoundError } from '../utils/errors';
 import { aiService, analysisService } from './analysisService';
 import { familyHeadline, type FamilyScanBody } from './presentAnalysis';
 import { nutritionFromLabelItems, type LabelNutrientInput } from './nutrition';
+
+export interface CaptureDraft {
+  productName: string;
+  brand: string;
+  variant: string;
+  category: string;
+  claims: string[];
+  ingredientsText: string;
+  contains: string[];
+  mayContain: string[];
+  nutrition: LabelNutrientInput[];
+  sections: {
+    package: 'ready' | 'missing';
+    ingredients: 'ready' | 'missing';
+    nutrition: 'ready' | 'missing';
+    allergens: 'ready' | 'missing';
+  };
+  nextCapture: 'ingredients' | 'nutrition' | null;
+  prompt: { title: string; message: string } | null;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'NEEDS_CONFIRMATION';
+  verificationStatus: 'NEEDS_REVIEW';
+}
 import { normalizeIngredientText } from './ocrNormalize';
 import { productService } from './productService';
 import { profileService } from './profileService';
@@ -42,50 +64,65 @@ export class ScanService {
     return this.persist(userId, profiles, product.id, 'label', draft);
   }
 
-  async previewLabel(images: Array<{ buffer: Buffer; mimeType: string }>): Promise<{
-    productName: string;
-    brand: string;
-    ingredientsText: string;
-    contains: string[];
-    mayContain: string[];
-    nutrition: LabelNutrientInput[];
-    sections: { ingredients: 'ready' | 'missing'; nutrition: 'ready' | 'missing'; allergens: 'ready' | 'missing' };
-    verificationStatus: 'NEEDS_REVIEW';
-  }> {
-    if (images.length === 0) throw new AppError('Add at least one label photo.', 400, 'VALIDATION_ERROR');
+  async previewLabel(images: Array<{ buffer: Buffer; mimeType: string }>): Promise<CaptureDraft> {
+    if (images.length === 0) throw new AppError('Add at least one package photo.', 400, 'VALIDATION_ERROR');
     const parts = [];
     for (const image of images.slice(0, 3)) {
       parts.push(await aiService.extractLabel(image.buffer, image.mimeType, { allowPartial: true }));
     }
-    const useful = parts.filter((part) => part.ingredientsText || part.nutritionItems.length > 0 || part.contains.length > 0);
-    if (useful.length === 0) {
+    const named = parts.filter((part) => part.productName && part.productName !== 'Scanned label');
+    const useful = parts.filter(
+      (part) => part.ingredientsText || part.nutritionItems.length > 0 || part.contains.length > 0 || named.includes(part),
+    );
+    if (useful.length === 0 && named.length === 0) {
       throw new AppError(
-        'The label could not be read. Retake it in even light, with the text filling the frame.',
+        "We couldn't read the package. Move closer, keep it steady, and try another angle.",
         422,
         'LABEL_UNREADABLE',
       );
     }
-    const ingredientsText = normalizeIngredientText(useful.map((part) => part.ingredientsText).filter(Boolean).join(', '));
-    const contains = unique(useful.flatMap((part) => part.contains));
-    const mayContain = unique(useful.flatMap((part) => part.mayContain));
-    const nutritionItems = useful.flatMap((part) => part.nutritionItems);
-    const nutrition: LabelNutrientInput[] = nutritionItems.map((item) => ({
-      name: item.name,
-      amount: item.amount,
-      unit: item.unit,
-    }));
+    const pool = useful.length > 0 ? useful : named;
+    const ingredientsText = normalizeIngredientText(pool.map((part) => part.ingredientsText).filter(Boolean).join(', '));
+    const contains = unique(pool.flatMap((part) => part.contains));
+    const mayContain = unique(pool.flatMap((part) => part.mayContain));
+    const nutrition: LabelNutrientInput[] = pool.flatMap((part) =>
+      part.nutritionItems.map((item) => ({ name: item.name, amount: item.amount, unit: item.unit })),
+    );
+    const productName = named[0]?.productName ?? pool.find((part) => part.productName)?.productName ?? '';
+    const sections = {
+      package: productName ? ('ready' as const) : ('missing' as const),
+      ingredients: ingredientsText.length > 0 || contains.length > 0 ? ('ready' as const) : ('missing' as const),
+      nutrition: nutrition.length > 0 ? ('ready' as const) : ('missing' as const),
+      allergens: contains.length + mayContain.length > 0 ? ('ready' as const) : ('missing' as const),
+    };
+    const nextCapture: CaptureDraft['nextCapture'] =
+      sections.ingredients === 'missing' ? 'ingredients' : sections.nutrition === 'missing' ? 'nutrition' : null;
+    const prompt =
+      nextCapture === 'ingredients'
+        ? {
+            title: productName ? 'We found the product.' : 'Almost there.',
+            message: 'Turn the package around so we can read the ingredients.',
+          }
+        : nextCapture === 'nutrition'
+          ? {
+              title: 'One more thing.',
+              message: 'Capture the nutrition panel.',
+            }
+          : null;
     return {
-      productName: useful.find((part) => part.productName && part.productName !== 'Scanned label')?.productName ?? useful[0]?.productName ?? '',
-      brand: useful.find((part) => part.brand)?.brand ?? '',
+      productName,
+      brand: pool.find((part) => part.brand)?.brand ?? '',
+      variant: pool.find((part) => part.variant)?.variant ?? '',
+      category: pool.find((part) => part.category)?.category ?? '',
+      claims: unique(pool.flatMap((part) => part.claims)),
       ingredientsText,
       contains,
       mayContain,
       nutrition,
-      sections: {
-        ingredients: ingredientsText.length > 0 ? 'ready' : 'missing',
-        nutrition: nutrition.length > 0 ? 'ready' : 'missing',
-        allergens: contains.length + mayContain.length > 0 ? 'ready' : 'missing',
-      },
+      sections,
+      nextCapture,
+      prompt,
+      confidence: sections.ingredients === 'ready' && sections.nutrition === 'ready' ? 'NEEDS_CONFIRMATION' : 'LOW',
       verificationStatus: 'NEEDS_REVIEW',
     };
   }
@@ -95,11 +132,16 @@ export class ScanService {
     input: {
       productName: string;
       brand?: string;
+      variant?: string;
+      category?: string;
+      claims?: string[];
+      barcode?: string;
       ingredientsText: string;
       contains: string[];
       mayContain: string[];
       nutrition: LabelNutrientInput[];
       country?: string;
+      image?: { buffer: Buffer; mimeType: string };
     },
   ): Promise<FamilyScanBody> {
     const profiles = await this.profiles(userId);
@@ -108,14 +150,26 @@ export class ScanService {
     const product = await productService.saveLabel({
       name: input.productName,
       brand: input.brand || undefined,
+      variant: input.variant || undefined,
+      category: input.category || undefined,
+      claims: input.claims ?? [],
+      barcode: input.barcode,
       ingredientsText: normalizeIngredientText(input.ingredientsText),
       contains: input.contains,
       mayContain: input.mayContain,
       nutrition: nutrition.facts,
       nutritionItems: nutrition.items,
       countryCode: country,
+      confidence: input.ingredientsText.trim() ? 'HIGH' : 'LOW',
+      image: input.image,
     });
-    const draft = await analysisService.buildFamily({ profiles, product, scanType: 'label', countryHint: country });
+    const draft = await analysisService.buildFamily({
+      profiles,
+      product,
+      scanType: 'label',
+      countryHint: country,
+      labelConfirmed: true,
+    });
     return this.persist(userId, profiles, product.id, 'label', draft);
   }
 
@@ -139,14 +193,15 @@ export class ScanService {
         if (index >= 0) analyses[index] = reviewed;
         else analyses.push(reviewed);
         const familySummary = analyses.map((item) => {
-          const headline = familyHeadline(item.status, item.findings);
+          const headline = item.fit === 'GOOD_FIT' ? 'Good fit' : familyHeadline(item.status, item.findings);
           return {
             profileId: item.profileId,
             profileName: item.profileName,
             status: item.status,
+            fit: item.fit,
             statusLabel: item.statusLabel,
             headline,
-            topConcern: headline,
+            topConcern: item.fit === 'GOOD_FIT' ? null : headline,
           };
         });
         scan.analysis = { ...analysis, scope: 'family', profileAnalyses: analyses, familySummary };

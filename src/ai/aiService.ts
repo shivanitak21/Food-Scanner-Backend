@@ -14,6 +14,9 @@ import { EXPLANATION_INSTRUCTIONS, HEALTH_EXTRACT_INSTRUCTIONS, RECOMMENDATION_I
 export interface LabelExtraction {
   productName: string;
   brand: string;
+  variant: string;
+  category: string;
+  claims: string[];
   ingredientsText: string;
   contains: string[];
   mayContain: string[];
@@ -75,6 +78,9 @@ const reportMatchSchema = z.object({
 const extractionSchema = z.object({
   productName: z.string().optional().default(''),
   brand: z.string().optional().default(''),
+  variant: z.string().optional().default(''),
+  category: z.string().optional().default(''),
+  claims: z.array(z.string()).optional().default([]),
   ingredientsText: z.string().optional().default(''),
   contains: z.array(z.string()).optional().default([]),
   mayContain: z.array(z.string()).optional().default([]),
@@ -155,6 +161,9 @@ export class AIService {
         return {
           productName: parsed.productName.trim().slice(0, 200),
           brand: parsed.brand.trim().slice(0, 120),
+          variant: parsed.variant.trim().slice(0, 80),
+          category: parsed.category.trim().slice(0, 80),
+          claims: parsed.claims.map((item) => item.trim()).filter(Boolean).slice(0, 12),
           ingredientsText: '',
           contains: [],
           mayContain: [],
@@ -172,6 +181,9 @@ export class AIService {
     return {
       productName: parsed.productName.trim().slice(0, 200) || 'Scanned label',
       brand: parsed.brand.trim().slice(0, 120),
+      variant: parsed.variant.trim().slice(0, 80),
+      category: parsed.category.trim().slice(0, 80),
+      claims: parsed.claims.map((item) => item.trim()).filter(Boolean).slice(0, 12),
       ingredientsText,
       contains: parsed.contains.map((item) => item.trim()).filter(Boolean).slice(0, 40),
       mayContain: parsed.mayContain.map((item) => item.trim()).filter(Boolean).slice(0, 40),
@@ -262,7 +274,7 @@ export class AIService {
     }
   }
 
-  async recommend(input: { decision: 'Can eat' | 'Check first' | "Don't eat"; findings: string[] }): Promise<string | null> {
+  async recommend(input: { decision: 'Good fit' | 'Review' | "Doesn't fit" | 'Not enough information'; findings: string[] }): Promise<string | null> {
     if (!this.isConfigured()) return null;
     try {
       const content = await this.complete(

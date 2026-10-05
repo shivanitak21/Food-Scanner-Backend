@@ -93,11 +93,28 @@ export function analyzeProfile(input: RulesInput): RulesResult {
         severity: 'MEDIUM',
         detection: 'missing_data',
         reason:
-          'The ingredient list was read from a photo. Photo reading can miss or misread an allergen, so this result is not marked suitable on its own. Compare every finding with the physical package.',
+          'The ingredient list was read from a photo and has not been confirmed. Photo reading can miss or misread an allergen, so this result is not marked a good fit on its own. Compare every finding with the physical package.',
         evidence: [
           {
             title: 'Label photo',
             detail: 'The ingredient text came from an image rather than a product database record.',
+          },
+        ],
+      }),
+    );
+  } else if (input.sourceReliability === 'confirmed_label') {
+    findings.push(
+      makeFinding({
+        type: 'DATA_QUALITY',
+        title: 'Ingredients confirmed from a package photo',
+        severity: 'INFO',
+        detection: 'missing_data',
+        reason:
+          'The ingredient text was read from a package photo and confirmed before this review. Photo reading can still miss a word. Compare important findings with the package.',
+        evidence: [
+          {
+            title: 'Confirmed package photo',
+            detail: 'The person confirmed the text read from the package.',
           },
         ],
       }),
@@ -318,6 +335,8 @@ function matchPreferences(input: RulesInput, existing: RuleFinding[], clearCheck
   if (preferences.includes('kosher')) {
     findings.push(...kosherFindings(input, clearChecks));
   }
+  findings.push(...styleFindings(input, preferences));
+
   if (preferences.includes('organic preferred')) {
     if (input.organicClaim === true) {
       clearChecks.push('The product data includes an organic claim. That claim was not independently certified by FoodLens.');
@@ -342,6 +361,92 @@ function matchPreferences(input: RulesInput, existing: RuleFinding[], clearCheck
   }
 
   return findings;
+}
+
+function styleFindings(input: RulesInput, preferences: string[]): RuleFinding[] {
+  const findings: RuleFinding[] = [];
+  const wants = (label: string) => preferences.includes(label);
+
+  if (wants('dairy free')) {
+    const dairy = ingredientsWithFlag(input.ingredients, 'dairy');
+    if (dairy.length > 0) {
+      findings.push(
+        preferenceConflict(
+          'Contains dairy',
+          dairy,
+          'HIGH',
+          'Dairy is listed. This profile is set to dairy-free. This is an ingredient-list check, not a dairy-free certification.',
+        ),
+      );
+    }
+  }
+
+  if (wants('low lactose')) {
+    const dairy = ingredientsWithFlag(input.ingredients, 'dairy');
+    if (dairy.length > 0) {
+      findings.push(
+        preferenceConflict(
+          'Contains dairy',
+          dairy,
+          'MEDIUM',
+          'Dairy is listed. This profile is set to watch lactose. The lactose amount was not measured.',
+        ),
+      );
+    }
+  }
+
+  if (wants('eggetarian')) {
+    const animal = ['meat', 'fish', 'shellfish'].flatMap((flag) => ingredientsWithFlag(input.ingredients, flag));
+    if (animal.length > 0) {
+      findings.push(
+        preferenceConflict(
+          'Contains meat or fish',
+          animal,
+          'HIGH',
+          'Meat or fish is listed. This profile is set to eggetarian. Eggs are not treated as a conflict for this preference.',
+        ),
+      );
+    }
+  }
+
+  if (wants('jain')) {
+    const blocked = ['meat', 'fish', 'shellfish', 'egg', 'honey', 'gelatin'].flatMap((flag) =>
+      ingredientsWithFlag(input.ingredients, flag),
+    );
+    if (blocked.length > 0) {
+      findings.push(
+        preferenceConflict(
+          'Conflicts with a Jain preference',
+          blocked,
+          'HIGH',
+          'An ingredient associated with a Jain restriction is listed. This is an ingredient-list check, not a Jain certification. Root vegetables are not assessed unless they are named in the ingredient list and matched here.',
+        ),
+      );
+    }
+  }
+
+  return findings;
+}
+
+function preferenceConflict(
+  title: string,
+  matches: TaggedIngredient[],
+  severity: 'HIGH' | 'MEDIUM',
+  reason: string,
+): RuleFinding {
+  const unique = matches.filter((item, index) => matches.findIndex((other) => other.name === item.name) === index);
+  return makeFinding({
+    type: 'PREFERENCE',
+    title,
+    ingredient: unique[0]?.name,
+    severity,
+    detection: 'detected',
+    reason,
+    evidence: unique.slice(0, 4).map((item) => ({
+      title: `Ingredient “${item.raw}”`,
+      detail: 'Matched from the ingredient list for this dietary preference.',
+    })),
+  });
 }
 
 function matchCustomLimits(input: RulesInput): RuleFinding[] {

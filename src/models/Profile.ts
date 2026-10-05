@@ -12,6 +12,11 @@ const profileSchema = new mongoose.Schema(
     allergies: { type: [String], default: [] },
     limits: { type: [String], default: [] },
     notes: { type: String, default: null, maxlength: 280 },
+    goals: { type: [String], default: [] },
+    lifeStage: {
+      type: String,
+      enum: ['me', 'adult', 'child', 'teen', 'baby', 'pregnancy', 'breastfeeding', 'senior', 'other'],
+    },
     isPrimary: { type: Boolean, required: true, default: false },
     healthContext: {
       enabled: { type: Boolean, default: false },

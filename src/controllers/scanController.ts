@@ -39,11 +39,18 @@ export const confirmLabel = asyncHandler(async (req: Request, res: Response) => 
   const analysis = await scanService.confirmLabel(userId(req), {
     productName: req.body.productName,
     brand: req.body.brand,
+    variant: req.body.variant,
+    category: req.body.category,
+    claims: req.body.claims ?? [],
+    barcode: typeof req.body.barcode === 'string' && /^[0-9A-Za-z]{4,32}$/.test(req.body.barcode.replace(/[\s-]/g, ''))
+      ? req.body.barcode.replace(/[\s-]/g, '')
+      : undefined,
     ingredientsText: req.body.ingredientsText,
     contains: req.body.contains ?? [],
     mayContain: req.body.mayContain ?? [],
     nutrition: req.body.nutrition ?? [],
     country: countryOrUndefined(req.body.country),
+    image: req.file ? { buffer: req.file.buffer, mimeType: req.file.mimetype } : undefined,
   });
   res.status(201).json(analysis);
 });

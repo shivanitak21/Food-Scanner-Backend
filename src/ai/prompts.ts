@@ -4,13 +4,17 @@ Return JSON only with this shape:
 {
   "productName": "",
   "brand": "",
+  "variant": "",
+  "category": "",
+  "claims": [],
   "ingredientsText": "",
   "contains": [],
   "mayContain": [],
   "nutrition": [{ "name": "", "amount": "", "unit": "", "basis": "per_100g" }],
   "unreadable": false
 }
-Copy the ingredient list from the image. Do not invent ingredients, allergens, or nutrition numbers.
+Copy only text that is visible. A front photo may have a brand and product name without ingredients.
+Do not invent ingredients, allergens, claims, or nutrition numbers.
 If the ingredient list cannot be read, set ingredientsText to an empty string and unreadable to true.
 basis must be "per_100g", "per_serving", or "unknown".
 Do not include advice or safety opinions.`;
@@ -44,7 +48,7 @@ Do not diagnose, name a disease, prescribe, or say the food is safe, unsafe, or 
 Do not give medical advice.`;
 
 export const RECOMMENDATION_INSTRUCTIONS = `You write one recommendation for one person and one product.
-The decision is already chosen: "Can eat", "Check first", or "Don't eat".
+The decision is already chosen: "Good fit", "Review", "Doesn't fit", or "Not enough information".
 Repeat that decision in the sentence. Do not change it.
 Mention only finding titles from the payload.
 One sentence, under 22 words.

@@ -15,6 +15,7 @@ import { authRoutes } from './routes/authRoutes';
 import { productRoutes } from './routes/productRoutes';
 import { profileRoutes } from './routes/profileRoutes';
 import { scanRoutes } from './routes/scanRoutes';
+import { productImageDirectory } from './services/productImages';
 import { userRoutes } from './routes/userRoutes';
 
 export function createApp() {
@@ -29,7 +30,7 @@ export function createApp() {
       customProps: (req) => ({ requestId: req.requestId }),
     }),
   );
-  app.use(helmet());
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.use(
     cors({
       origin(origin, callback) {
@@ -44,6 +45,8 @@ export function createApp() {
   app.use(express.json({ limit: env.bodyLimit }));
   app.use(mongoSanitize());
   app.use(hpp());
+
+  app.use('/media/products', express.static(productImageDirectory()));
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: 'foodlens-api' });

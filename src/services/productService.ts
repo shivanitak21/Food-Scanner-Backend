@@ -10,6 +10,7 @@ import { AppError, NotFoundError, isMongoDuplicate } from '../utils/errors';
 import { prepareIngredients } from './ingredientService';
 import type { NutritionItem } from './nutrition';
 import { fetchOpenFoodFactsProduct, type OffDraft } from './openFoodFacts';
+import { saveProductImage } from './productImages';
 
 export interface StoredProduct {
   id: string;
@@ -24,6 +25,7 @@ export interface StoredProduct {
   imageUrl?: string;
   organicClaim: boolean | null;
   source: 'open_food_facts' | 'label_ocr';
+  confidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'NEEDS_CONFIRMATION';
   sourceUpdatedAt?: string;
   fetchedAt: string;
   freshness: 'fresh' | 'cached' | 'stale';
@@ -42,6 +44,7 @@ interface ProductRecord {
   imageUrl?: string;
   organicClaim?: boolean | null;
   source: 'open_food_facts' | 'label_ocr';
+  confidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'NEEDS_CONFIRMATION';
   sourceUpdatedAt?: Date;
   fetchedAt: Date;
 }
@@ -88,12 +91,18 @@ export class ProductService {
   async saveLabel(input: {
     name: string;
     brand?: string;
+    variant?: string;
+    category?: string;
+    claims?: string[];
+    barcode?: string;
     ingredientsText: string;
     contains: string[];
     mayContain: string[];
     nutrition: NutritionFacts | null;
     nutritionItems: NutritionItem[];
     countryCode?: string;
+    confidence?: 'HIGH' | 'MEDIUM' | 'LOW' | 'NEEDS_CONFIRMATION';
+    image?: { buffer: Buffer; mimeType: string };
   }): Promise<StoredProduct> {
     const ingredientsText = [input.ingredientsText, input.contains.length > 0 ? `Contains: ${input.contains.join(', ')}.` : '', input.mayContain.length > 0 ? `May contain: ${input.mayContain.join(', ')}.` : '']
       .filter(Boolean)
@@ -101,8 +110,14 @@ export class ProductService {
       .slice(0, 20000);
     const prepared = prepareIngredients(ingredientsText, { source: 'Label photo' });
     const created = await Product.create({
+      barcode: input.barcode || undefined,
       name: input.name,
       brand: input.brand || undefined,
+      variant: input.variant || undefined,
+      category: input.category || undefined,
+      claims: input.claims ?? [],
+      confidence: input.confidence,
+      market: input.countryCode ? { country: input.countryCode, region: null, language: null } : undefined,
       countryCodes: input.countryCode ? [input.countryCode] : [],
       ingredientsText,
       declarations: prepared.declarations,
@@ -113,6 +128,10 @@ export class ProductService {
       sourceUpdatedAt: new Date(),
       fetchedAt: new Date(),
     });
+    if (input.image) {
+      created.imageUrl = await saveProductImage(String(created._id), input.image.buffer, input.image.mimeType);
+      await created.save();
+    }
     return toStored(created.toObject() as ProductRecord, 'fresh');
   }
 
@@ -158,6 +177,7 @@ function toStored(product: ProductRecord, freshness: StoredProduct['freshness'])
     imageUrl: product.imageUrl || undefined,
     organicClaim: typeof product.organicClaim === 'boolean' ? product.organicClaim : null,
     source: product.source,
+    confidence: product.confidence,
     sourceUpdatedAt: product.sourceUpdatedAt ? new Date(product.sourceUpdatedAt).toISOString() : undefined,
     fetchedAt: new Date(product.fetchedAt).toISOString(),
     freshness,

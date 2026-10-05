@@ -318,6 +318,7 @@ export const ALLERGEN_LABELS: Record<string, string> = {
 const ALLERGY_ALIASES: Record<string, string[]> = {
   milk: ['milk'],
   dairy: ['milk'],
+  'milk / dairy': ['milk'],
   eggs: ['egg'],
   egg: ['egg'],
   peanuts: ['peanut'],

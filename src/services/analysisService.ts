@@ -7,8 +7,8 @@ import type { RulesInput } from '../rules/types';
 import { AppError } from '../utils/errors';
 import { prepareIngredients } from './ingredientService';
 import type { ProfileView } from './profileService';
+import { FIT_LABEL, deriveFit } from './fit';
 import {
-  FAMILY_STATUS_LABEL,
   familyHeadline,
   presentAnalysis,
   type AnalysisBody,
@@ -95,6 +95,7 @@ export class AnalysisService {
     product: StoredProduct;
     scanType: 'barcode' | 'label';
     countryHint?: string;
+    labelConfirmed?: boolean;
   }): Promise<Omit<FamilyScanBody, 'id' | 'createdAt'>> {
     if (input.profiles.length === 0) {
       throw new AppError('Add a family profile before scanning.', 400, 'VALIDATION_ERROR');
@@ -107,6 +108,7 @@ export class AnalysisService {
           product: input.product,
           scanType: input.scanType,
           countryHint: input.countryHint,
+          labelConfirmed: input.labelConfirmed,
         }),
       ),
     );
@@ -130,17 +132,28 @@ export class AnalysisService {
         sourceUpdatedAt: input.product.sourceUpdatedAt,
       },
       familySummary: profileAnalyses.map((analysis) => {
-        const headline = familyHeadline(analysis.status, analysis.findings);
+        const headline = analysis.fit === 'INSUFFICIENT_INFORMATION'
+          ? 'Ingredients missing'
+          : analysis.fit === 'GOOD_FIT'
+            ? 'Good fit'
+            : familyHeadline(analysis.status, analysis.findings);
         return {
           profileId: analysis.profileId,
           profileName: analysis.profileName,
           status: analysis.status,
-          statusLabel: FAMILY_STATUS_LABEL[analysis.status],
+          fit: analysis.fit,
+          statusLabel: analysis.statusLabel,
           headline,
-          topConcern: headline,
+          topConcern: analysis.fit === 'GOOD_FIT' ? null : headline,
         };
       }),
       profileAnalyses,
+      missingInformation: missingProductInformation(input.product),
+      confidence: !input.product.ingredientsText
+        ? 'LOW'
+        : input.labelConfirmed || input.scanType === 'barcode'
+          ? 'HIGH'
+          : 'MEDIUM',
     };
   }
 
@@ -149,6 +162,7 @@ export class AnalysisService {
     product: StoredProduct;
     scanType: 'barcode' | 'label';
     countryHint?: string;
+    labelConfirmed?: boolean;
   }): Promise<Omit<AnalysisBody, 'id' | 'createdAt'>> {
     const prepared = prepareIngredients(input.product.ingredientsText, {
       mayContain: input.product.declarations.filter((item) => item.presence === 'may_contain').map((item) => item.label),
@@ -192,7 +206,12 @@ export class AnalysisService {
       declarations,
       nutrition: input.product.nutrition,
       countryCodes,
-      sourceReliability: input.scanType === 'label' ? 'label_photo' : 'database',
+      sourceReliability:
+        input.labelConfirmed || input.product.confidence === 'HIGH'
+          ? 'confirmed_label'
+          : input.scanType === 'label'
+            ? 'label_photo'
+            : 'database',
       organicClaim: input.product.organicClaim,
       staleProductData: input.product.freshness === 'stale',
     });
@@ -214,7 +233,7 @@ export class AnalysisService {
       rules.findings = [...rules.findings, ...extra];
       rules.status = rollupStatus(rules.findings);
     }
-    const decision = rules.status === 'avoid' ? "Don't eat" : rules.status === 'review' ? 'Check first' : 'Can eat';
+    const decision = FIT_LABEL[deriveFit(rules.status, rules.findings)];
     const titles = rules.findings.filter((finding) => finding.severity !== 'INFO').map((finding) => finding.title).slice(0, 4);
     const recommendation = await this.ai.recommend({ decision, findings: titles });
     return presentAnalysis({
@@ -255,6 +274,13 @@ function confirmedReport(context: {
     .map((item) => item.recommendation.trim());
   if (biomarkers.length + dietaryRecommendations.length === 0) return null;
   return { biomarkers, dietaryRecommendations };
+}
+
+function missingProductInformation(product: StoredProduct): string[] {
+  const missing: string[] = [];
+  if (!product.ingredientsText.trim()) missing.push('ingredients');
+  if (!product.nutrition && product.nutritionItems.length === 0) missing.push('nutrition');
+  return missing;
 }
 
 function dedupeDeclarations(items: RulesInput['declarations']): RulesInput['declarations'] {

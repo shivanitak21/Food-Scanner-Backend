@@ -18,6 +18,8 @@ export interface ProfileInput {
   allergies: string[];
   limits: string[];
   notes: string | null;
+  goals: string[];
+  lifeStage: 'me' | 'adult' | 'child' | 'teen' | 'baby' | 'pregnancy' | 'breastfeeding' | 'senior' | 'other' | null;
   isPrimary: boolean;
 }
 
@@ -136,6 +138,8 @@ function normalize(input: ProfileInput) {
     allergies: uniqueStrings(input.allergies).slice(0, 40),
     limits: uniqueStrings(input.limits).slice(0, 40),
     notes: input.notes?.trim() ? input.notes.trim() : null,
+    goals: uniqueStrings(input.goals ?? []).slice(0, 3),
+    lifeStage: input.lifeStage || undefined,
   };
 }
 
@@ -150,6 +154,8 @@ function toView(profile: {
   allergies?: string[];
   limits?: string[];
   notes?: string | null;
+  goals?: string[];
+  lifeStage?: ProfileView['lifeStage'];
   isPrimary: boolean;
   healthContext?: unknown;
 }): ProfileView {
@@ -164,6 +170,8 @@ function toView(profile: {
     allergies: profile.allergies ?? [],
     limits: profile.limits ?? [],
     notes: profile.notes ?? null,
+    goals: profile.goals ?? [],
+    lifeStage: profile.lifeStage ?? null,
     isPrimary: profile.isPrimary,
     healthContext: toHealth(profile.healthContext),
   };

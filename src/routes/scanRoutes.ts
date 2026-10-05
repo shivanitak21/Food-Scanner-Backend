@@ -12,6 +12,6 @@ scanRoutes.use(authenticate);
 scanRoutes.post('/barcode', validate({ body: barcodeScanSchema }), scanBarcode);
 scanRoutes.post('/label', uploadLabel, requireImage, validate({ body: labelScanSchema }), scanLabel);
 scanRoutes.post('/label/preview', uploadLabelImages, requireImages, previewLabel);
-scanRoutes.post('/label/confirm', validate({ body: labelConfirmSchema }), confirmLabel);
+scanRoutes.post('/label/confirm', uploadLabel, validate({ body: labelConfirmSchema }), confirmLabel);
 scanRoutes.get('/history', scanHistory);
 scanRoutes.get('/:id', validate({ params: idParamsSchema }), getScan);

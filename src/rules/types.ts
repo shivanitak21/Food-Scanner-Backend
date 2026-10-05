@@ -22,7 +22,7 @@ export type AgeGroup = 'baby' | 'child' | 'teen' | 'adult' | 'older_adult';
 
 export type DietPreference = 'none' | 'vegetarian' | 'vegan';
 
-export type SourceReliability = 'database' | 'label_photo';
+export type SourceReliability = 'database' | 'label_photo' | 'confirmed_label';
 
 export interface Evidence {
   title: string;

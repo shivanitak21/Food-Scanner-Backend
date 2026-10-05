@@ -250,4 +250,17 @@ describe('rules engine', () => {
     expect(result.clearChecks.join(' ')).toMatch(/Peanuts was not found/i);
     expect(summary).toMatch(/not a guarantee/i);
   });
+
+  it('flags listed dairy for a dairy-free preference without diagnosing', () => {
+    const result = analyzeProfile(
+      rulesInput({
+        profile: { name: 'Aria', ageGroup: 'adult', age: 30, diet: 'none', dietaryPreferences: ['Dairy-free'], allergies: [], limits: [] },
+        ingredients: [tagged('butter'), tagged('salt')],
+      }),
+    );
+    const dairy = result.findings.find((finding) => finding.type === 'PREFERENCE');
+    expect(result.status).toBe('avoid');
+    expect(dairy?.title).toMatch(/dairy/i);
+    expect(dairy?.reason).not.toMatch(/dangerous|disease|diagnosis/i);
+  });
 });
