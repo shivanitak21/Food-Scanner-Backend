@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 
+import { Product } from '../models/Product';
 import { Scan } from '../models/Scan';
 import type { AnalysisStatus } from '../rules/types';
 import { normalizeCountryCode } from '../rules/countries';
@@ -31,6 +32,7 @@ export interface CaptureDraft {
   verificationStatus: 'NEEDS_REVIEW';
 }
 import { normalizeIngredientText } from './ocrNormalize';
+import { storedImagePath } from './productImages';
 import { productService } from './productService';
 import { profileService } from './profileService';
 
@@ -59,6 +61,7 @@ export class ScanService {
       nutrition: extraction.nutrition,
       nutritionItems: extraction.nutritionItems,
       countryCode: country,
+      image: { buffer: input.image, mimeType: input.mimeType },
     });
     const draft = await analysisService.buildFamily({ profiles, product, scanType: 'label', countryHint: country });
     return this.persist(userId, profiles, product.id, 'label', draft);
@@ -216,14 +219,37 @@ export class ScanService {
 
   async history(userId: string): Promise<Array<FamilyScanBody | Record<string, unknown>>> {
     const scans = await Scan.find({ userId }).sort({ createdAt: -1 }).limit(100);
-    return scans.map(withIdentity);
+    return this.withStoredImages(scans);
   }
 
   async get(userId: string, scanId: string): Promise<FamilyScanBody | Record<string, unknown>> {
     if (!mongoose.isValidObjectId(scanId)) throw new NotFoundError('Scan not found.');
     const scan = await Scan.findOne({ _id: scanId, userId });
     if (!scan) throw new NotFoundError('Scan not found.');
-    return withIdentity(scan);
+    const [hydrated] = await this.withStoredImages([scan]);
+    if (!hydrated) throw new NotFoundError('Scan not found.');
+    return hydrated;
+  }
+
+  private async withStoredImages(
+    scans: Array<{ _id: mongoose.Types.ObjectId; productId?: unknown; createdAt?: Date; analysis: unknown }>,
+  ): Promise<Array<FamilyScanBody | Record<string, unknown>>> {
+    const ids = [
+      ...new Set(
+        scans
+          .map((scan) => (scan.productId ? String(scan.productId) : ''))
+          .filter((id) => mongoose.isValidObjectId(id)),
+      ),
+    ];
+    const products = ids.length
+      ? await Product.find({ _id: { $in: ids } })
+          .select('imageUrl')
+          .lean<Array<{ _id: mongoose.Types.ObjectId; imageUrl?: string }>>()
+      : [];
+    const byId = new Map(products.map((product) => [String(product._id), storedImagePath(product.imageUrl)]));
+    return scans.map((scan) =>
+      applyStoredImage(withIdentity(scan), scan.productId ? byId.get(String(scan.productId)) : undefined),
+    );
   }
 
   private async profiles(userId: string) {
@@ -251,11 +277,11 @@ export class ScanService {
       analysis: draft,
     });
     await scan.save();
-    const analysis = withIdentity(scan) as FamilyScanBody;
+    const [analysis] = await this.withStoredImages([scan]);
     scan.analysis = analysis;
     scan.markModified('analysis');
     await scan.save();
-    return analysis;
+    return analysis as FamilyScanBody;
   }
 }
 
@@ -273,6 +299,45 @@ function worstStatus(statuses: AnalysisStatus[]): AnalysisStatus {
   if (statuses.includes('avoid')) return 'avoid';
   if (statuses.includes('review')) return 'review';
   return 'suitable';
+}
+
+function applyStoredImage(
+  body: FamilyScanBody | Record<string, unknown>,
+  stored?: string,
+): FamilyScanBody | Record<string, unknown> {
+  const record = body as Record<string, unknown>;
+  if (stored) {
+    assignImage(record.product, stored);
+    if (Array.isArray(record.profileAnalyses)) {
+      for (const analysis of record.profileAnalyses) {
+        if (analysis && typeof analysis === 'object') assignImage((analysis as { product?: unknown }).product, stored);
+      }
+    }
+    return body;
+  }
+  cleanImage(record.product);
+  if (Array.isArray(record.profileAnalyses)) {
+    for (const analysis of record.profileAnalyses) {
+      if (analysis && typeof analysis === 'object') cleanImage((analysis as { product?: unknown }).product);
+    }
+  }
+  return body;
+}
+
+function assignImage(product: unknown, imageUrl: string): void {
+  if (!product || typeof product !== 'object') return;
+  (product as { imageUrl?: string }).imageUrl = imageUrl;
+}
+
+function cleanImage(product: unknown): void {
+  if (!product || typeof product !== 'object') return;
+  const record = product as { imageUrl?: string };
+  const kept = storedImagePath(record.imageUrl);
+  if (!kept) {
+    delete record.imageUrl;
+    return;
+  }
+  record.imageUrl = kept;
 }
 
 function withIdentity(scan: { _id: mongoose.Types.ObjectId; createdAt?: Date; analysis: unknown }): FamilyScanBody | Record<string, unknown> {

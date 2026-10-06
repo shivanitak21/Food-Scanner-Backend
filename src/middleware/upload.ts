@@ -9,7 +9,8 @@ export const uploadLabelImages = multer({
   storage,
   limits: { fileSize: 8 * 1024 * 1024, files: 3 },
   fileFilter: (_req, file, callback) => {
-    if (!['image/jpeg', 'image/png', 'image/webp', 'image/jpg'].includes(file.mimetype)) {
+    const mime = file.mimetype.toLowerCase();
+    if (mime && !mime.startsWith('image/') && mime !== 'application/octet-stream') {
       callback(new AppError('Use a JPEG, PNG, or WebP image.', 400, 'VALIDATION_ERROR'));
       return;
     }
@@ -39,13 +40,28 @@ export const uploadLabel = multer({
   storage,
   limits: { fileSize: 8 * 1024 * 1024, files: 1 },
   fileFilter: (_req, file, callback) => {
-    if (!['image/jpeg', 'image/png', 'image/webp', 'image/jpg'].includes(file.mimetype)) {
+    const mime = file.mimetype.toLowerCase();
+    if (mime && !mime.startsWith('image/') && mime !== 'application/octet-stream') {
       callback(new AppError('Use a JPEG, PNG, or WebP image.', 400, 'VALIDATION_ERROR', { image: 'Use a JPEG, PNG, or WebP image.' }));
       return;
     }
     callback(null, true);
   },
 }).single('image');
+
+export function normalizeOptionalImage(req: Request, _res: Response, next: NextFunction): void {
+  if (!req.file?.buffer?.length) {
+    next();
+    return;
+  }
+  const sniffed = sniffImage(req.file.buffer);
+  if (!sniffed) {
+    next(new AppError('Use a JPEG, PNG, or WebP image.', 400, 'VALIDATION_ERROR', { image: 'Use a JPEG, PNG, or WebP image.' }));
+    return;
+  }
+  req.file.mimetype = sniffed;
+  next();
+}
 
 export function requireImage(req: Request, _res: Response, next: NextFunction): void {
   if (!req.file?.buffer?.length) {
