@@ -263,4 +263,78 @@ describe('rules engine', () => {
     expect(dairy?.title).toMatch(/dairy/i);
     expect(dairy?.reason).not.toMatch(/dangerous|disease|diagnosis/i);
   });
+
+  it('treats a salt-watching goal like a sodium limit and leaves other adults alone', () => {
+    const watching = analyzeProfile(
+      rulesInput({
+        profile: {
+          name: 'Aria',
+          ageGroup: 'adult',
+          age: 30,
+          diet: 'none',
+          dietaryPreferences: [],
+          allergies: [],
+          limits: [],
+          goals: ['Watch salt'],
+        },
+        ingredients: [tagged('water')],
+        nutrition: { perServing: { sodiumMg: 800 } },
+      }),
+    );
+    const plain = analyzeProfile(
+      rulesInput({
+        profile: { name: 'Aria', ageGroup: 'adult', age: 30, diet: 'none', dietaryPreferences: [], allergies: [], limits: [] },
+        ingredients: [tagged('water')],
+        nutrition: { perServing: { sodiumMg: 800 } },
+      }),
+    );
+
+    expect(watching.findings.some((finding) => finding.type === 'SODIUM')).toBe(true);
+    expect(plain.findings.some((finding) => finding.type === 'SODIUM')).toBe(false);
+    expect(plain.status).toBe('suitable');
+  });
+
+  it('uses age and pregnancy only when the product data supports the finding', () => {
+    const older = analyzeProfile(
+      rulesInput({
+        profile: { name: 'Nora', ageGroup: 'adult', age: 68, diet: 'none', dietaryPreferences: [], allergies: [], limits: [] },
+        ingredients: [tagged('water')],
+        nutrition: { perServing: { sodiumMg: 800 } },
+      }),
+    );
+    const pregnant = analyzeProfile(
+      rulesInput({
+        profile: {
+          name: 'Mia',
+          ageGroup: 'adult',
+          age: 31,
+          diet: 'none',
+          dietaryPreferences: [],
+          allergies: [],
+          limits: [],
+          lifeStage: 'pregnancy',
+        },
+        ingredients: [tagged('wine'), tagged('water')],
+      }),
+    );
+    const adultWine = analyzeProfile(
+      rulesInput({
+        profile: { name: 'Aria', ageGroup: 'adult', age: 31, diet: 'none', dietaryPreferences: [], allergies: [], limits: [] },
+        ingredients: [tagged('wine'), tagged('water')],
+      }),
+    );
+    const child = analyzeProfile(
+      rulesInput({
+        profile: { name: 'Leo', ageGroup: 'child', age: 8, diet: 'none', dietaryPreferences: [], allergies: [], limits: [] },
+        ingredients: [tagged('coffee'), tagged('water')],
+      }),
+    );
+
+    expect(older.findings.find((finding) => finding.type === 'SODIUM')?.reason).toMatch(/68 years old/);
+    expect(older.findings.find((finding) => finding.type === 'SODIUM')?.reason).toMatch(/not a medical assessment/i);
+    expect(pregnant.findings.find((finding) => finding.type === 'AGE')?.title).toMatch(/pregnancy/i);
+    expect(pregnant.status).toBe('avoid');
+    expect(adultWine.findings.some((finding) => finding.type === 'AGE')).toBe(false);
+    expect(child.findings.some((finding) => finding.type === 'CAFFEINE')).toBe(true);
+  });
 });

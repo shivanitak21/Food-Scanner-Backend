@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { ageFromDateOfBirth } from '../utils/age';
+
 const textList = z.array(z.string().trim().min(1).max(80)).max(40);
 
 function parsedJson(value: unknown): unknown {
@@ -34,6 +36,17 @@ export const profileSchema = z.object({
   role: z.enum(['self', 'adult', 'child', 'baby', 'other']),
   ageGroup: z.enum(['baby', 'child', 'teen', 'adult', 'older_adult']).nullable(),
   age: z.number().int().min(0).max(120).nullable(),
+  dateOfBirth: z
+    .preprocess(
+      (value) => (value === '' || value === undefined ? null : value),
+      z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a date of birth as YYYY-MM-DD')
+        .nullable()
+        .refine((value) => value === null || ageFromDateOfBirth(value) !== null, 'Enter a real date of birth'),
+    )
+    .optional()
+    .default(null),
   diet: z.enum(['none', 'vegetarian', 'vegan']),
   dietaryPreferences: textList,
   allergies: textList,

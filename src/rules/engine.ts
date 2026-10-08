@@ -46,6 +46,9 @@ const LIMIT_ALIASES: Record<string, LimitId> = {
   caffeine: 'caffeine',
   'artificial sweetener': 'artificial_sweetener',
   'artificial sweeteners': 'artificial_sweetener',
+  'manage sugar': 'added_sugar',
+  'watch salt': 'sodium',
+  'watch saturated fat': 'saturated_fat',
 };
 
 /**
@@ -149,6 +152,7 @@ export function analyzeProfile(input: RulesInput): RulesResult {
 
   findings.push(...matchNutrientLimits(input, packs, clearChecks, canScreenIngredients));
   findings.push(...matchAge(input, packs));
+  findings.push(...matchProfileContext(input, packs));
 
   return {
     status: rollupStatus(findings),
@@ -1016,11 +1020,89 @@ function regulationNote(allergenIds: string[], packs: CountryPack[]): string | u
 
 function activeLimits(profile: ProfileRules): Set<LimitId> {
   const limits = new Set<LimitId>();
-  for (const value of [...profile.limits, ...profile.dietaryPreferences]) {
+  for (const value of [...profile.limits, ...profile.dietaryPreferences, ...(profile.goals ?? [])]) {
     const mapped = LIMIT_ALIASES[canon(value)];
     if (mapped) limits.add(mapped);
   }
   return limits;
+}
+
+function isOlderProfile(profile: ProfileRules): boolean {
+  if (profile.age !== null && profile.age < 18) return false;
+  if (profile.age !== null && profile.age >= 60) return true;
+  return profile.age === null && (profile.lifeStage === 'senior' || profile.ageGroup === 'older_adult');
+}
+
+function matchProfileContext(input: RulesInput, packs: CountryPack[]): RuleFinding[] {
+  const findings: RuleFinding[] = [];
+  const stage = input.profile.lifeStage;
+  const perinatal = stage === 'pregnancy' || stage === 'breastfeeding';
+
+  if (perinatal) {
+    const alcohol = ingredientsWithFlag(input.ingredients, 'alcohol');
+    if (alcohol.length > 0) {
+      const label = stage === 'breastfeeding' ? 'breastfeeding' : 'pregnancy';
+      findings.push(
+        makeFinding({
+          type: 'AGE',
+          title: `Alcohol is listed for a ${label} profile`,
+          ingredient: alcohol[0]?.name,
+          severity: 'HIGH',
+          detection: 'detected',
+          reason: `Alcohol is listed, and this profile is marked for ${label}. Public health guidance advises avoiding alcohol during pregnancy and while breastfeeding. This is a match against the ingredient list, not a diagnosis.`,
+          evidence: [
+            ...alcohol.map((item) => ({
+              title: `Ingredient “${item.raw}”`,
+              detail: 'Alcohol was matched in the ingredient list.',
+              source: 'U.S. CDC',
+              url: 'https://www.cdc.gov/alcohol-pregnancy/about/index.html',
+            })),
+          ],
+        }),
+      );
+    }
+
+    const ageStage = lifeStage(input.profile);
+    const strong = ingredientsWithFlag(input.ingredients, 'caffeine_strong');
+    if (ageStage === 'other' && strong.length > 0) {
+      findings.push(
+        makeFinding({
+          type: 'CAFFEINE',
+          title: 'Caffeine ingredient listed',
+          ingredient: strong[0]?.name,
+          severity: 'MEDIUM',
+          detection: 'detected',
+          reason: `A caffeine ingredient is listed (${strong.map((item) => flagTerm(item, 'caffeine_strong')).join(', ')}), and this profile is marked for ${stage === 'breastfeeding' ? 'breastfeeding' : 'pregnancy'}. The caffeine amount was not measured, so this is a screening note rather than a dose assessment.`,
+          evidence: strong.map((item) => ({
+            title: `Ingredient “${item.raw}”`,
+            detail: `Matched “${flagTerm(item, 'caffeine_strong')}”.`,
+            source: 'Dietary Guidelines for Americans',
+            url: 'https://www.dietaryguidelines.gov/',
+          })),
+        }),
+      );
+    }
+  }
+
+  if (isOlderProfile(input.profile) && !activeLimits(input.profile).has('sodium')) {
+    const sodium = evaluateNutrient(input.nutrition, packs, 'sodiumMg', 'Sodium');
+    if (sodium.state === 'high' && sodium.evidence) {
+      const ageText = input.profile.age !== null ? `This profile is ${input.profile.age} years old` : 'This profile is marked as an older adult';
+      findings.push(
+        makeFinding({
+          type: 'SODIUM',
+          title: 'Sodium is above the screening threshold',
+          ingredient: 'sodium',
+          severity: 'MEDIUM',
+          detection: 'nutrition_label',
+          reason: `${ageText}, and sodium is above the screening threshold used for this product. ${sodium.detail} This is a label comparison, not a medical assessment.`,
+          evidence: [sodium.evidence],
+        }),
+      );
+    }
+  }
+
+  return findings;
 }
 
 function lifeStage(profile: ProfileRules): 'infant' | 'under_two' | 'child' | 'other' {

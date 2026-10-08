@@ -94,6 +94,8 @@ export interface ProfileRules {
   dietaryPreferences: string[];
   allergies: string[];
   limits: string[];
+  goals?: string[];
+  lifeStage?: string | null;
   healthContext?: HealthContextRules;
 }
 

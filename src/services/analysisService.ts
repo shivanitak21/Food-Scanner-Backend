@@ -34,15 +34,7 @@ export class AnalysisService {
     const declarations = dedupeDeclarations([...prepared.declarations, ...input.product.declarations]);
     const countryCodes = [...new Set([...input.product.countryCodes, ...(input.countryHint ? [input.countryHint] : [])])];
     const rulesInput: RulesInput = {
-      profile: {
-        name: input.profile.name,
-        ageGroup: input.profile.ageGroup,
-        age: input.profile.age,
-        diet: input.profile.diet,
-        dietaryPreferences: input.profile.dietaryPreferences,
-        allergies: input.profile.allergies,
-        limits: input.profile.limits,
-      },
+      profile: rulesProfile(input.profile),
       ingredients: prepared.ingredients,
       declarations,
       nutrition: input.product.nutrition,
@@ -193,15 +185,7 @@ export class AnalysisService {
       ...input.product.nutritionItems.map((item) => [item.name, item.amount, item.unit].filter(Boolean).join(' ')),
     ].join('\n');
     const rules = analyzeProfile({
-      profile: {
-        name: input.profile.name,
-        ageGroup: input.profile.ageGroup,
-        age: input.profile.age,
-        diet: input.profile.diet,
-        dietaryPreferences: input.profile.dietaryPreferences,
-        allergies: input.profile.allergies,
-        limits: input.profile.limits,
-      },
+      profile: rulesProfile(input.profile),
       ingredients: prepared.ingredients,
       declarations,
       nutrition: input.product.nutrition,
@@ -246,6 +230,20 @@ export class AnalysisService {
       scanType: input.scanType,
     });
   }
+}
+
+function rulesProfile(profile: ProfileView): RulesInput['profile'] {
+  return {
+    name: profile.name,
+    ageGroup: profile.ageGroup,
+    age: profile.age,
+    diet: profile.diet,
+    dietaryPreferences: profile.dietaryPreferences,
+    allergies: profile.allergies,
+    limits: profile.limits,
+    goals: profile.goals,
+    lifeStage: profile.lifeStage,
+  };
 }
 
 function confirmedReport(context: {

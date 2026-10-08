@@ -7,6 +7,7 @@ const profileSchema = new mongoose.Schema(
     role: { type: String, enum: ['self', 'adult', 'child', 'baby', 'other'], required: true },
     ageGroup: { type: String, default: null },
     age: { type: Number, min: 0, max: 120, default: null },
+    dateOfBirth: { type: String, default: null, maxlength: 10 },
     diet: { type: String, enum: ['none', 'vegetarian', 'vegan'], required: true, default: 'none' },
     dietaryPreferences: { type: [String], default: [] },
     allergies: { type: [String], default: [] },

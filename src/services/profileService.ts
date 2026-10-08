@@ -3,6 +3,7 @@ import mongoose from 'mongoose';
 import { Profile } from '../models/Profile';
 import { uniqueStrings } from '../rules/text';
 import type { AgeGroup, DietPreference, HealthInterpretation } from '../rules/types';
+import { ageFromDateOfBirth, ageGroupFromAge } from '../utils/age';
 import { NotFoundError } from '../utils/errors';
 
 const AGE_GROUPS: AgeGroup[] = ['baby', 'child', 'teen', 'adult', 'older_adult'];
@@ -13,6 +14,7 @@ export interface ProfileInput {
   role: 'self' | 'adult' | 'child' | 'baby' | 'other';
   ageGroup: AgeGroup | null;
   age: number | null;
+  dateOfBirth: string | null;
   diet: DietPreference;
   dietaryPreferences: string[];
   allergies: string[];
@@ -128,11 +130,13 @@ export class ProfileService {
 }
 
 function normalize(input: ProfileInput) {
+  const resolved = resolveAge(input);
   return {
     name: input.name.trim(),
     role: input.role,
-    ageGroup: input.ageGroup,
-    age: input.age,
+    ageGroup: resolved.ageGroup,
+    age: resolved.age,
+    dateOfBirth: resolved.dateOfBirth,
     diet: input.diet,
     dietaryPreferences: uniqueStrings(input.dietaryPreferences).slice(0, 40),
     allergies: uniqueStrings(input.allergies).slice(0, 40),
@@ -149,6 +153,7 @@ function toView(profile: {
   role: string;
   ageGroup?: string | null;
   age?: number | null;
+  dateOfBirth?: string | null;
   diet: string;
   dietaryPreferences?: string[];
   allergies?: string[];
@@ -159,12 +164,19 @@ function toView(profile: {
   isPrimary: boolean;
   healthContext?: unknown;
 }): ProfileView {
+  const storedGroup = AGE_GROUPS.find((group) => group === profile.ageGroup) ?? null;
+  const resolved = resolveAge({
+    dateOfBirth: profile.dateOfBirth ?? null,
+    age: typeof profile.age === 'number' ? profile.age : null,
+    ageGroup: storedGroup,
+  });
   return {
     id: String(profile._id),
     name: profile.name,
     role: profile.role as ProfileView['role'],
-    ageGroup: AGE_GROUPS.find((group) => group === profile.ageGroup) ?? null,
-    age: typeof profile.age === 'number' ? profile.age : null,
+    ageGroup: resolved.ageGroup,
+    age: resolved.age,
+    dateOfBirth: resolved.dateOfBirth,
     diet: DIETS.find((diet) => diet === profile.diet) ?? 'none',
     dietaryPreferences: profile.dietaryPreferences ?? [],
     allergies: profile.allergies ?? [],
@@ -175,6 +187,19 @@ function toView(profile: {
     isPrimary: profile.isPrimary,
     healthContext: toHealth(profile.healthContext),
   };
+}
+
+function resolveAge(input: { dateOfBirth: string | null; age: number | null; ageGroup: AgeGroup | null }): {
+  dateOfBirth: string | null;
+  age: number | null;
+  ageGroup: AgeGroup | null;
+} {
+  const dateOfBirth = input.dateOfBirth?.trim() ? input.dateOfBirth.trim() : null;
+  const computed = dateOfBirth ? ageFromDateOfBirth(dateOfBirth) : null;
+  if (computed === null) {
+    return { dateOfBirth, age: input.age, ageGroup: input.ageGroup };
+  }
+  return { dateOfBirth, age: computed, ageGroup: ageGroupFromAge(computed) };
 }
 
 function toHealth(value: unknown): HealthContextView {
