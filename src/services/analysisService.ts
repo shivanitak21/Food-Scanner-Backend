@@ -1,5 +1,6 @@
 import { AIService } from '../ai/aiService';
 import { env } from '../config/env';
+import { contextFromProfile, profileFromContext } from '../rules/context';
 import { DISCLAIMER } from '../rules/disclaimer';
 import { analyzeProfile, rollupStatus } from '../rules/engine';
 import { findingsFromReportMatches, reportComparisonUnavailable, type ConfirmedReport } from '../rules/healthContext';
@@ -233,17 +234,7 @@ export class AnalysisService {
 }
 
 function rulesProfile(profile: ProfileView): RulesInput['profile'] {
-  return {
-    name: profile.name,
-    ageGroup: profile.ageGroup,
-    age: profile.age,
-    diet: profile.diet,
-    dietaryPreferences: profile.dietaryPreferences,
-    allergies: profile.allergies,
-    limits: profile.limits,
-    goals: profile.goals,
-    lifeStage: profile.lifeStage,
-  };
+  return profileFromContext(contextFromProfile(profile));
 }
 
 function confirmedReport(context: {

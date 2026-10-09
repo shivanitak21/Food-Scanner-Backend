@@ -103,14 +103,18 @@ function readBasis(nutriments: Record<string, unknown>, suffix: '100g' | 'servin
   const carbohydrates = numberField(nutriments, `carbohydrates_${suffix}`);
   const sugars = numberField(nutriments, `sugars_${suffix}`);
   const protein = numberField(nutriments, `proteins_${suffix}`);
+  const fiber = numberField(nutriments, `fiber_${suffix}`);
+  const transFat = numberField(nutriments, `trans-fat_${suffix}`);
   const salt = numberField(nutriments, `salt_${suffix}`);
   const sodium = numberField(nutriments, `sodium_${suffix}`);
   const amount = {
     energyKcal: energy,
     fatG: fat,
+    transFatG: transFat,
     saturatedFatG: saturatedFat,
     carbohydratesG: carbohydrates,
     sugarsG: sugars,
+    fiberG: fiber,
     proteinG: protein,
     saltG: salt,
     sodiumMg: sodium !== undefined ? Math.round(sodium * 1000) : salt !== undefined ? Math.round(salt * 400) : undefined,

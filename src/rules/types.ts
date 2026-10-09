@@ -68,7 +68,9 @@ export interface NutrientAmount {
   saturatedFatG?: number;
   energyKcal?: number;
   fatG?: number;
+  transFatG?: number;
   carbohydratesG?: number;
+  fiberG?: number;
   proteinG?: number;
   saltG?: number;
 }

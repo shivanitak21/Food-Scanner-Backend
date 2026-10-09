@@ -4,6 +4,15 @@ import jwt from 'jsonwebtoken';
 import { env } from '../config/env';
 import { UnauthorizedError } from '../utils/errors';
 
+export function optionalAuthenticate(req: Request, res: Response, next: NextFunction): void {
+  const header = req.header('authorization');
+  if (!header?.startsWith('Bearer ')) {
+    next();
+    return;
+  }
+  authenticate(req, res, next);
+}
+
 export function authenticate(req: Request, _res: Response, next: NextFunction): void {
   const header = req.header('authorization');
   if (!header?.startsWith('Bearer ')) {

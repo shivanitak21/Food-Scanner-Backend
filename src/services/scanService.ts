@@ -7,6 +7,8 @@ import { normalizeCountryCode } from '../rules/countries';
 import { logger } from '../config/logger';
 import { AppError, NotFoundError } from '../utils/errors';
 import { aiService, analysisService } from './analysisService';
+import { buildQuickAnalysis, type QuickScanBody } from './foodAnalysis';
+import type { AnalysisContext } from '../rules/context';
 import { familyHeadline, type FamilyScanBody } from './presentAnalysis';
 import { nutritionFromLabelItems, type LabelNutrientInput } from './nutrition';
 
@@ -174,6 +176,71 @@ export class ScanService {
       labelConfirmed: true,
     });
     return this.persist(userId, profiles, product.id, 'label', draft);
+  }
+
+  async quickBarcode(input: { barcode: string; country?: string; context?: Partial<AnalysisContext> | null }): Promise<QuickScanBody> {
+    const country = input.country ? normalizeCountryCode(input.country) ?? undefined : undefined;
+    const product = await productService.findByBarcode(input.barcode, country);
+    return buildQuickAnalysis({ product, context: input.context, scanType: 'barcode', countryHint: country });
+  }
+
+  async quickConfirmLabel(input: {
+    productName: string;
+    brand?: string;
+    variant?: string;
+    category?: string;
+    claims?: string[];
+    barcode?: string;
+    ingredientsText: string;
+    contains: string[];
+    mayContain: string[];
+    nutrition: LabelNutrientInput[];
+    country?: string;
+    context?: Partial<AnalysisContext> | null;
+    image?: { buffer: Buffer; mimeType: string };
+  }): Promise<QuickScanBody> {
+    const country = input.country ? normalizeCountryCode(input.country) ?? undefined : undefined;
+    const nutrition = nutritionFromLabelItems(input.nutrition);
+    const product = await productService.saveLabel({
+      name: input.productName,
+      brand: input.brand || undefined,
+      variant: input.variant || undefined,
+      category: input.category || undefined,
+      claims: input.claims ?? [],
+      barcode: input.barcode,
+      ingredientsText: normalizeIngredientText(input.ingredientsText),
+      contains: input.contains,
+      mayContain: input.mayContain,
+      nutrition: nutrition.facts,
+      nutritionItems: nutrition.items,
+      countryCode: country,
+      confidence: input.ingredientsText.trim() ? 'HIGH' : 'LOW',
+      image: input.image,
+    });
+    return buildQuickAnalysis({
+      product,
+      context: input.context,
+      scanType: 'label',
+      countryHint: country,
+      labelConfirmed: true,
+    });
+  }
+
+  async quickRefine(input: {
+    productId: string;
+    scanType: 'barcode' | 'label';
+    country?: string;
+    context?: Partial<AnalysisContext> | null;
+  }): Promise<QuickScanBody> {
+    const country = input.country ? normalizeCountryCode(input.country) ?? undefined : undefined;
+    const product = await productService.findByIdOrBarcode(input.productId);
+    return buildQuickAnalysis({
+      product,
+      context: input.context,
+      scanType: input.scanType,
+      countryHint: country,
+      labelConfirmed: product.source === 'label_ocr' && product.confidence === 'HIGH',
+    });
   }
 
   async refreshMember(userId: string, profileId: string): Promise<void> {

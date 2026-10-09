@@ -30,10 +30,16 @@ const NUTRIENT_KEYS: Record<string, keyof NutrientAmount | 'salt'> = {
   sugar: 'sugarsG',
   sugars: 'sugarsG',
   'total sugars': 'sugarsG',
+  fiber: 'fiberG',
+  fibre: 'fiberG',
+  'dietary fiber': 'fiberG',
+  'dietary fibre': 'fiberG',
   protein: 'proteinG',
   proteins: 'proteinG',
   salt: 'salt',
   sodium: 'sodiumMg',
+  'trans fat': 'transFatG',
+  'trans-fat': 'transFatG',
 };
 
 export function nutritionFromLabelItems(items: LabelNutrientInput[]): { facts: NutritionFacts | null; items: NutritionItem[] } {

@@ -73,6 +73,30 @@ export const barcodeParamsSchema = z.object({
     .refine((value) => /^[0-9A-Za-z]{4,32}$/.test(value), 'Enter a valid barcode'),
 });
 
+export const analysisContextSchema = z.preprocess(
+  parsedJson,
+  z
+    .object({
+      age: z.number().int().min(0).max(120).nullable().optional(),
+      dateOfBirth: z
+        .string()
+        .regex(/^\d{4}-\d{2}-\d{2}$/, 'Enter a date of birth as YYYY-MM-DD')
+        .nullable()
+        .optional(),
+      diet: z.enum(['none', 'vegetarian', 'vegan']).optional(),
+      dietaryPreferences: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+      allergies: z.array(z.string().trim().min(1).max(80)).max(20).optional(),
+      healthConditions: z
+        .array(z.enum(['diabetes', 'high_blood_pressure', 'high_cholesterol', 'other']))
+        .max(4)
+        .optional(),
+      goals: z.array(z.string().trim().min(1).max(60)).max(8).optional(),
+      thingsToWatch: z.array(z.string().trim().min(1).max(40)).max(8).optional(),
+      eating: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
+    })
+    .optional(),
+);
+
 export const barcodeScanSchema = z.object({
   barcode: z
     .string()
@@ -142,4 +166,16 @@ export const labelConfirmSchema = z.object({
   ),
   barcode: z.string().trim().max(40).optional().default(''),
   country: optionalCountry,
+  context: analysisContextSchema,
+});
+
+export const quickBarcodeSchema = barcodeScanSchema.extend({
+  context: analysisContextSchema,
+});
+
+export const quickRefineSchema = z.object({
+  productId: z.string().trim().min(1).max(80),
+  scanType: z.enum(['barcode', 'label']),
+  country: optionalCountry,
+  context: analysisContextSchema,
 });
