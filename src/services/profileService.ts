@@ -8,6 +8,9 @@ import { NotFoundError } from '../utils/errors';
 
 const AGE_GROUPS: AgeGroup[] = ['baby', 'child', 'teen', 'adult', 'older_adult'];
 const DIETS: DietPreference[] = ['none', 'vegetarian', 'vegan'];
+const SEXES = ['female', 'male'] as const;
+
+export type ProfileSex = (typeof SEXES)[number];
 
 export interface ProfileInput {
   name: string;
@@ -15,6 +18,7 @@ export interface ProfileInput {
   ageGroup: AgeGroup | null;
   age: number | null;
   dateOfBirth: string | null;
+  sex?: ProfileSex | null;
   diet: DietPreference;
   dietaryPreferences: string[];
   allergies: string[];
@@ -137,6 +141,7 @@ function normalize(input: ProfileInput) {
     ageGroup: resolved.ageGroup,
     age: resolved.age,
     dateOfBirth: resolved.dateOfBirth,
+    sex: input.sex ?? null,
     diet: input.diet,
     dietaryPreferences: uniqueStrings(input.dietaryPreferences).slice(0, 40),
     allergies: uniqueStrings(input.allergies).slice(0, 40),
@@ -154,6 +159,7 @@ function toView(profile: {
   ageGroup?: string | null;
   age?: number | null;
   dateOfBirth?: string | null;
+  sex?: string | null;
   diet: string;
   dietaryPreferences?: string[];
   allergies?: string[];
@@ -177,6 +183,7 @@ function toView(profile: {
     ageGroup: resolved.ageGroup,
     age: resolved.age,
     dateOfBirth: resolved.dateOfBirth,
+    sex: SEXES.find((sex) => sex === profile.sex) ?? null,
     diet: DIETS.find((diet) => diet === profile.diet) ?? 'none',
     dietaryPreferences: profile.dietaryPreferences ?? [],
     allergies: profile.allergies ?? [],

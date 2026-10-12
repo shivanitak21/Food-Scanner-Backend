@@ -47,6 +47,7 @@ export const profileSchema = z.object({
     )
     .optional()
     .default(null),
+  sex: z.enum(['female', 'male']).nullable().optional().default(null),
   diet: z.enum(['none', 'vegetarian', 'vegan']),
   dietaryPreferences: textList,
   allergies: textList,
